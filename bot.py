@@ -14,25 +14,32 @@ MAX_AGE_DAYS = 7
 MAX_PER_RUN = 20
 
 QUERIES = [
-    "باستان شناسی آذربایجان شرقی",
-    "باستان شناسی آذربایجان غربی",
     "میراث فرهنگی آذربایجان شرقی",
     "میراث فرهنگی آذربایجان غربی",
+    "باستان شناسی آذربایجان",
+    "کاوش باستان شناسی تبریز",
+    "کاوش باستان شناسی ارومیه",
     "میراث فرهنگی تبریز",
     "میراث فرهنگی ارومیه",
-    "کاوش باستان شناسی آذربایجان",
     "تخت سلیمان تکاب",
+    "بازار تاریخی تبریز",
+    "ثبت جهانی آذربایجان",
     "اداره کل میراث فرهنگی آذربایجان",
 ]
 
 
-def feed_url(q):
-    params = {"q": q, "hl": "fa", "gl": "IR", "ceid": "IR:fa"}
-    return "https://news.google.com/rss/search?" + urllib.parse.urlencode(params)
+def sources(q):
+    google = "https://news.google.com/rss/search?" + urllib.parse.urlencode(
+        {"q": q, "hl": "fa", "gl": "IR", "ceid": "IR:fa"}
+    )
+    bing = "https://www.bing.com/news/search?" + urllib.parse.urlencode(
+        {"q": q, "format": "rss", "setlang": "fa-IR"}
+    )
+    return [("google", google), ("bing", bing)]
 
 
-def fetch(q):
-    req = urllib.request.Request(feed_url(q), headers={"User-Agent": "Mozilla/5.0"})
+def fetch(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=30) as r:
         root = ET.fromstring(r.read())
     items = []
@@ -71,17 +78,22 @@ def main():
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=MAX_AGE_DAYS)
     found = {}
+    titles = set()
     for q in QUERIES:
-        try:
-            items = fetch(q)
-            fresh = 0
-            for link, title, dt in items:
-                if link not in seen_set and dt >= cutoff:
+        for name, url in sources(q):
+            try:
+                items = fetch(url)
+                fresh = 0
+                for link, title, dt in items:
+                    key = title.split(" - ")[0].strip()
+                    if link in seen_set or dt < cutoff or key in titles:
+                        continue
+                    titles.add(key)
                     found[link] = (title, dt)
                     fresh += 1
-            print(f"{q}: {len(items)} items, {fresh} new")
-        except Exception as e:
-            print("fetch error:", q, e)
+                print(f"{name} | {q}: {len(items)} items, {fresh} new")
+            except Exception as e:
+                print("fetch error:", name, q, e)
 
     items = sorted(found.items(), key=lambda x: x[1][1])
     print("to send:", len(items))
