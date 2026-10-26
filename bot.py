@@ -10,10 +10,9 @@ from email.utils import parsedate_to_datetime
 TOKEN = os.environ["TELEGRAM_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 SEEN_FILE = "seen.json"
-MAX_AGE_DAYS = 3      # خبرهای قدیمی‌تر از این نادیده گرفته می‌شن
-MAX_PER_RUN = 20      # حداکثر تعداد پیام در هر اجرا
+MAX_AGE_DAYS = 7
+MAX_PER_RUN = 20
 
-# کلمات جستجو: هر خط یک جستجوی جدا. می‌تونید خطی اضافه یا کم کنید.
 QUERIES = [
     "باستان شناسی آذربایجان شرقی",
     "باستان شناسی آذربایجان غربی",
@@ -74,16 +73,20 @@ def main():
     found = {}
     for q in QUERIES:
         try:
-            for link, title, dt in fetch(q):
+            items = fetch(q)
+            fresh = 0
+            for link, title, dt in items:
                 if link not in seen_set and dt >= cutoff:
                     found[link] = (title, dt)
+                    fresh += 1
+            print(f"{q}: {len(items)} items, {fresh} new")
         except Exception as e:
             print("fetch error:", q, e)
 
-    items = sorted(found.items(), key=lambda x: x[1][1])  # قدیمی‌ترین اول
+    items = sorted(found.items(), key=lambda x: x[1][1])
+    print("to send:", len(items))
 
     if first_run:
-        # بار اول: همه رو فقط علامت می‌زنیم تا سیل پیام نیاد
         seen.extend(link for link, _ in items)
         send("ربات اخبار میراث و باستان‌شناسی آذربایجان فعال شد ✅")
     else:
