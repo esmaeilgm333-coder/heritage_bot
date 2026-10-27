@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import time
 import urllib.parse
 import urllib.request
@@ -38,6 +39,25 @@ def sources(q):
     return [("google", google), ("bing", bing)]
 
 
+def clean_link(link):
+    try:
+        p = urllib.parse.urlparse(link)
+        if "bing.com" in p.netloc:
+            u = urllib.parse.parse_qs(p.query).get("url")
+            if u:
+                return u[0]
+    except Exception:
+        pass
+    return link
+
+
+def norm_title(title):
+    t = title.split(" - ")[0]
+    t = t.replace("ي", "ی").replace("ك", "ک").replace("\u200c", " ")
+    t = re.sub(r"[^\w]+", "", t.lower())
+    return "t:" + t
+
+
 def fetch(url):
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=30) as r:
@@ -53,7 +73,7 @@ def fetch(url):
         except Exception:
             dt = datetime.now(timezone.utc)
         if link:
-            items.append((link, title, dt))
+            items.append((clean_link(link), title, dt))
     return items
 
 
@@ -74,6 +94,8 @@ def main():
     if not first_run:
         with open(SEEN_FILE, encoding="utf-8") as f:
             seen = json.load(f)
+    # اگر فایل قدیمی است (عنوان‌ها ذخیره نشده)، یک بار بی‌صدا ثبت می‌کنیم
+    silent = first_run or not any(s.startswith("t:") for s in seen)
     seen_set = set(seen)
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=MAX_AGE_DAYS)
@@ -85,30 +107,32 @@ def main():
                 items = fetch(url)
                 fresh = 0
                 for link, title, dt in items:
-                    key = title.split(" - ")[0].strip()
-                    if link in seen_set or dt < cutoff or key in titles:
+                    key = norm_title(title)
+                    if dt < cutoff or link in seen_set or key in seen_set or key in titles:
                         continue
                     titles.add(key)
-                    found[link] = (title, dt)
+                    found[link] = (title, dt, key)
                     fresh += 1
                 print(f"{name} | {q}: {len(items)} items, {fresh} new")
             except Exception as e:
                 print("fetch error:", name, q, e)
 
     items = sorted(found.items(), key=lambda x: x[1][1])
-    print("to send:", len(items))
+    print("to send:", len(items), "silent:", silent)
 
-    if first_run:
-        seen.extend(link for link, _ in items)
-        send("ربات اخبار میراث و باستان‌شناسی آذربایجان فعال شد ✅")
+    if silent:
+        for link, (_, _, key) in items:
+            seen.extend([link, key])
+        if first_run:
+            send("ربات اخبار میراث و باستان‌شناسی آذربایجان فعال شد ✅")
     else:
-        for link, (title, _) in items[:MAX_PER_RUN]:
+        for link, (title, _, key) in items[:MAX_PER_RUN]:
             if send(f"{title}\n{link}"):
-                seen.append(link)
+                seen.extend([link, key])
             time.sleep(1)
 
     with open(SEEN_FILE, "w", encoding="utf-8") as f:
-        json.dump(seen[-3000:], f, ensure_ascii=False)
+        json.dump(seen[-4000:], f, ensure_ascii=False)
 
 
 if __name__ == "__main__":
